@@ -1,6 +1,3 @@
-# app.py — CarryMe Store: AI-Powered Product Intelligence for Indian Sellers
-# Deploy FREE on Streamlit Cloud · Gemini API (Free Tier) · Zero Cost
-
 import streamlit as st
 from PIL import Image
 import io
@@ -234,7 +231,7 @@ if uploaded_file:
 
     img_col, btn_col = st.columns([1, 2])
     with img_col:
-        st.image(image, caption="Your Product", use_column_width=True)
+        st.image(image, caption="Your Product", use_container_width=True)
     with btn_col:
         st.markdown("### 🤖 AI Analysis Ready")
         st.markdown(f"**File:** {uploaded_file.name}")
