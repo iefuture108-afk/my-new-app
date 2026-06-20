@@ -1,145 +1,212 @@
-# ai_engine.py — Gemini AI Vision Engine (FREE API) — using google-genai SDK
+# ai_engine.py — Gemini AI Vision Engine
+# Free tier: gemini-2.0-flash · 15 req/min · 1500 req/day
+
 from google import genai
 from google.genai import types
 from PIL import Image
 import json
 import re
 import io
-import base64
-
+import time
 
 _client = None
+_last_call_time = 0
+
 
 def init_gemini(api_key: str):
-    """Initialize Gemini client with the provided API key."""
+    """Initialize Gemini client with API key."""
     global _client
-    _client = genai.Client(api_key=api_key)
+    _client = genai.Client(api_key=api_key.strip())
 
 
-def _image_to_bytes(image: Image.Image) -> bytes:
-    """Convert PIL image to bytes."""
+def _resize_image(image: Image.Image) -> tuple:
+    """Resize to max 1024px and convert to JPEG bytes for API efficiency."""
+    MAX = 1024
+    w, h = image.size
+    if w > MAX or h > MAX:
+        ratio = min(MAX / w, MAX / h)
+        image = image.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+
+    # Normalize mode for JPEG
+    if image.mode in ("RGBA", "P", "LA"):
+        image = image.convert("RGB")
+
     buf = io.BytesIO()
-    fmt = image.format if image.format else "JPEG"
-    if fmt not in ("JPEG", "PNG", "WEBP"):
-        fmt = "JPEG"
-    image.save(buf, format=fmt)
-    return buf.getvalue()
+    image.save(buf, format="JPEG", quality=85)
+    return buf.getvalue(), "image/jpeg"
+
+
+def _is_rate_limit_error(e: Exception) -> bool:
+    """Detect true rate limit (429 / RESOURCE_EXHAUSTED) - NOT other errors."""
+    msg = str(e).lower()
+    return (
+        "429" in str(e) or
+        "resource_exhausted" in msg or
+        "too_many_requests" in msg or
+        "toomanyrequests" in msg or
+        (("quota" in msg or "rate limit" in msg) and "429" in str(e))
+    )
+
+
+def _is_auth_error(e: Exception) -> bool:
+    """Detect API key / auth errors."""
+    msg = str(e).lower()
+    return (
+        "400" in str(e) and ("api_key" in msg or "api key" in msg) or
+        "401" in str(e) or
+        "invalid api key" in msg or
+        "api_key_invalid" in msg
+    )
+
+
+def _call_with_retry(contents, max_retries: int = 3) -> str:
+    """Call Gemini API with exponential backoff on true rate limits only."""
+    global _client, _last_call_time
+
+    # Gentle pacing — don't hammer the free tier
+    gap = time.time() - _last_call_time
+    if gap < 2.0:
+        time.sleep(2.0 - gap)
+
+    for attempt in range(max_retries):
+        try:
+            _last_call_time = time.time()
+            response = _client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=contents,
+            )
+            return response.text.strip()
+
+        except Exception as e:
+            if _is_rate_limit_error(e) and attempt < max_retries - 1:
+                wait_sec = (2 ** attempt) * 5  # 5s → 10s → 20s
+                time.sleep(wait_sec)
+                continue
+            raise  # non-rate-limit errors or final attempt: propagate
 
 
 def analyze_product_image(image: Image.Image, user_city: str = "", user_state: str = "") -> dict:
     """
-    Send product image to Gemini Vision for deep analysis.
-    Returns structured product intelligence.
+    Analyze a product image with Gemini Vision.
+    Returns structured JSON for all 3 CarryMe tabs.
     """
-    global _client
     if _client is None:
-        return {"success": False, "error": "❌ API client not initialized. Please enter your Gemini API key."}
+        return {
+            "success": False,
+            "error": "❌ API key not set. Please paste your Gemini key in the sidebar."
+        }
 
-    prompt = f"""You are an expert Indian e-commerce product analyst specializing in handmade, artisan, and small-scale manufactured goods for platforms like Meesho, Flipkart, and Amazon India.
+    location = f"{user_city}, {user_state}".strip(", ") or "India"
 
-Analyze this product image and return ONLY a JSON object (no markdown, no explanation, just raw JSON).
+    prompt = f"""You are an expert Indian e-commerce product analyst for Meesho, Flipkart, and Amazon India.
 
-The JSON must follow this exact structure:
+Analyze this product image. Return ONLY a valid JSON object — no markdown, no backticks, no text before or after.
+
+JSON structure (fill every field):
 {{
-  "product_name": "Clear descriptive product name (e.g., Hand-Embroidered Cotton Dupatta)",
-  "category": "One of: Fashion & Apparel, Ethnic Wear, Handmade Jewelry, Home Decor, Handicrafts, Bags & Accessories, Candles & Aroma, Paintings & Art, Toys & Kids, General",
-  "sub_category": "More specific category (e.g., Embroidered Dupatta)",
-  "materials": ["material1", "material2"],
-  "colors": ["color1", "color2"],
+  "product_name": "Short descriptive name e.g. Hand-Embroidered Cotton Dupatta",
+  "category": "Exactly one of: Fashion & Apparel | Ethnic Wear | Handmade Jewelry | Home Decor | Handicrafts | Bags & Accessories | Candles & Aroma | Paintings & Art | Toys & Kids | General",
+  "sub_category": "e.g. Embroidered Dupatta",
+  "materials": ["list", "of", "materials"],
+  "colors": ["primary", "secondary"],
   "style_keywords": ["keyword1", "keyword2", "keyword3"],
   "confidence": 0.90,
-  "listing_title": "SEO-optimized product title under 80 chars for Indian market",
-  "listing_description": "Compelling product description under 200 words highlighting handmade quality, cultural significance, and buyer benefits. Indian market focused.",
+  "listing_title": "SEO title max 80 chars, Indian market",
+  "listing_description": "150-200 words. Mention handmade quality, cultural value, occasion use. Simple English.",
   "price_suggestion": {{
     "min": 150,
     "max": 500,
     "currency": "INR",
-    "reasoning": "Brief reason for price range"
+    "reasoning": "One sentence justification"
   }},
-  "target_buyer": "Description of ideal buyer persona",
+  "target_buyer": "Who buys this e.g. Women 25-45 who love ethnic wear",
   "unique_selling_points": ["USP1", "USP2", "USP3"],
   "seo_tags": ["tag1", "tag2", "tag3", "tag4", "tag5"],
   "platform_recommendation": "Meesho",
-  "seller_tip": "One actionable tip for this seller in simple language",
-  "origin_hint": "Likely craft tradition or origin if recognizable (e.g., Rajasthani, Bengali, South Indian)"
+  "seller_tip": "One practical tip in plain English for a small Indian seller",
+  "origin_hint": "Craft region/tradition if visible, else empty string"
 }}
 
-User location: {user_city}, {user_state if user_state else 'India'}
-
-Be specific, practical, and focus on what works for small Indian handmade sellers. If you cannot clearly identify the product, make your best assessment based on visible details."""
+Seller is based in: {location}
+Give practical advice for Tier 3/4 Indian handmade sellers selling online for the first time."""
 
     try:
-        img_bytes = _image_to_bytes(image)
-        mime = "image/jpeg"
-        if image.format == "PNG":
-            mime = "image/png"
-        elif image.format == "WEBP":
-            mime = "image/webp"
+        img_bytes, mime = _resize_image(image)
+        raw = _call_with_retry([
+            types.Part.from_bytes(data=img_bytes, mime_type=mime),
+            types.Part.from_text(text=prompt),
+        ])
 
-        response = _client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=[
-                types.Part.from_bytes(data=img_bytes, mime_type=mime),
-                types.Part.from_text(text=prompt),
-            ]
-        )
-
-        raw = response.text.strip()
-        # Clean markdown fences
-        raw = re.sub(r"```json\s*", "", raw)
-        raw = re.sub(r"```\s*", "", raw)
+        # Strip accidental markdown fences
+        raw = re.sub(r"^```[a-zA-Z]*\s*", "", raw.strip(), flags=re.MULTILINE)
+        raw = re.sub(r"\s*```$", "", raw.strip(), flags=re.MULTILINE)
         raw = raw.strip()
 
-        result = json.loads(raw)
+        # Parse JSON
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            match = re.search(r'\{[\s\S]*\}', raw)
+            if match:
+                result = json.loads(match.group())
+            else:
+                return {
+                    "success": False,
+                    "error": "🔄 AI returned unexpected format. Try again with a clearer photo on a plain background."
+                }
+
         result["success"] = True
         return result
 
-    except json.JSONDecodeError:
-        try:
-            match = re.search(r'\{.*\}', raw, re.DOTALL)
-            if match:
-                result = json.loads(match.group())
-                result["success"] = True
-                return result
-        except Exception:
-            pass
-        return {
-            "success": False,
-            "error": "Could not parse AI response. Please try again with a clearer image.",
-        }
-
     except Exception as e:
-        error_msg = str(e)
-        if "API_KEY" in error_msg.upper() or "invalid" in error_msg.lower() or "api key" in error_msg.lower():
-            return {"success": False, "error": "❌ Invalid API Key. Please check your Gemini API key in the sidebar."}
-        elif "quota" in error_msg.lower() or "rate" in error_msg.lower() or "429" in error_msg:
-            return {"success": False, "error": "⏳ API quota reached. Free tier allows 15 requests/minute. Please wait and try again."}
+        msg = str(e)
+
+        if _is_auth_error(e):
+            return {
+                "success": False,
+                "error": "❌ Invalid API key. Get your free key at aistudio.google.com/app/apikey"
+            }
+        elif _is_rate_limit_error(e):
+            return {
+                "success": False,
+                "error": "⏳ Rate limit hit (15 req/min on free tier). Wait 60 seconds and try again.",
+                "rate_limited": True
+            }
+        elif "403" in msg and "allowlist" in msg.lower():
+            return {
+                "success": False,
+                "error": "🔒 Network blocked. If running locally, check firewall. On Streamlit Cloud this should work — try redeploying."
+            }
+        elif "403" in msg:
+            return {
+                "success": False,
+                "error": "🔒 API access denied. Ensure Gemini API is enabled at aistudio.google.com"
+            }
+        elif "timeout" in msg.lower() or "timed out" in msg.lower():
+            return {
+                "success": False,
+                "error": "⌛ Request timed out. Please try again."
+            }
         else:
-            return {"success": False, "error": f"AI Error: {error_msg[:300]}"}
+            return {
+                "success": False,
+                "error": f"⚠️ Unexpected error: {msg[:200]}"
+            }
 
 
 def generate_morning_briefing(products_analyzed: list) -> str:
-    """Generate a seller morning briefing using Gemini text."""
-    global _client
+    """Generate a short seller tip from recent history. Text-only, minimal quota use."""
     if _client is None or not products_analyzed:
-        return "No products analyzed yet today."
+        return "Upload a product photo to get your AI-powered business intelligence!"
 
-    prompt = f"""You are a helpful business advisor for small Indian handmade product sellers.
+    prompt = f"""You are a friendly business advisor for small Indian handmade sellers.
 
-Based on these recently analyzed products: {json.dumps(products_analyzed[:5])}
+Recent products: {json.dumps(products_analyzed[:3])}
 
-Write a brief, encouraging morning business briefing in simple English (2-3 sentences) with:
-1. A key insight about their product category
-2. One actionable tip to boost sales today
-3. A motivating closing line
-
-Keep it warm, practical, and under 100 words. Use simple language suitable for Tier 3/4 city sellers."""
+In 2 sentences max (under 60 words): give one practical tip to sell more of these products online in India. 
+Be warm, specific, and encouraging. Plain English only."""
 
     try:
-        response = _client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
-        return response.text.strip()
+        return _call_with_retry(prompt)
     except Exception:
-        return "🌅 Good morning! Your handmade products have unique value. Focus on clear photos and honest descriptions to win buyers' trust today. Every sale starts with a great product image!"
+        return "🌅 Your handmade craft is unique — no factory can copy your skill! Clear photos with natural light are your best tool. Your first online sale is closer than you think! 💪"
