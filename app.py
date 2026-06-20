@@ -136,6 +136,28 @@ st.markdown("""
 init_state()
 
 # ─────────────────────────────────────────
+# AUTO-LOAD GEMINI KEY FROM STREAMLIT SECRETS
+# Reads GEMINI_API_KEY saved in App Settings > Secrets
+# ─────────────────────────────────────────
+def _load_api_key_from_secrets() -> str:
+    """Try all common secret names for Gemini API key."""
+    for name in ["GEMINI_API_KEY", "gemini_api_key", "GOOGLE_API_KEY", "google_api_key"]:
+        try:
+            val = st.secrets.get(name, "")
+            if val and len(str(val).strip()) > 10:
+                return str(val).strip()
+        except Exception:
+            pass
+    return ""
+
+if not st.session_state.get("api_key"):
+    _secret_key = _load_api_key_from_secrets()
+    if _secret_key:
+        st.session_state.api_key = _secret_key
+        st.session_state.api_key_verified = True
+        init_gemini(_secret_key)
+
+# ─────────────────────────────────────────────
 # SIDEBAR — API KEY + LOCATION
 # ─────────────────────────────────────────
 with st.sidebar:
@@ -143,25 +165,35 @@ with st.sidebar:
     st.markdown("*AI Business Intelligence for Indian Sellers*")
     st.divider()
 
-    # API Key input
+    # API Key section
     st.markdown("### 🔑 Gemini API Key")
-    st.markdown('<div class="info-box">Get your <b>FREE</b> key at <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a> · 15 req/min free</div>', unsafe_allow_html=True)
 
-    api_key_input = st.text_input(
-        "Enter Gemini API Key",
-        value=st.session_state.api_key,
-        type="password",
-        placeholder="AIza...",
-        help="Google AI Studio free API key"
-    )
-
-    if api_key_input:
-        st.session_state.api_key = api_key_input
-        init_gemini(api_key_input)
-        st.session_state.api_key_verified = True
-        st.success("✅ API Key loaded!")
-        if len(api_key_input) < 30:
-            st.warning("⚠️ Key looks short — double-check you copied the full key")
+    if st.session_state.get("api_key_verified") and st.session_state.get("api_key"):
+        st.success("✅ API Key active — AI ready!")
+        with st.expander("🔄 Change API Key"):
+            new_key = st.text_input("New key:", type="password", placeholder="AIza...", key="new_key_input")
+            if new_key and new_key.strip():
+                st.session_state.api_key = new_key.strip()
+                init_gemini(new_key.strip())
+                st.success("Key updated!")
+    else:
+        st.markdown('<div class="info-box">Get your <b>FREE</b> key at <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a> · 15 req/min free</div>', unsafe_allow_html=True)
+        api_key_input = st.text_input(
+            "Paste Gemini API Key here:",
+            type="password",
+            placeholder="AIza...",
+            help="Free key from Google AI Studio"
+        )
+        if api_key_input and api_key_input.strip():
+            k = api_key_input.strip()
+            st.session_state.api_key = k
+            init_gemini(k)
+            st.session_state.api_key_verified = True
+            if len(k) < 30:
+                st.warning("⚠️ Key looks short — copy the full key")
+            else:
+                st.success("✅ API Key loaded!")
+                st.rerun()
 
     st.divider()
 
@@ -242,8 +274,10 @@ if uploaded_file:
         st.markdown(f"**File:** {uploaded_file.name}")
         st.markdown(f"**Size:** {image.size[0]}×{image.size[1]}px")
 
-        if not st.session_state.api_key:
-            st.warning("⚠️ Please enter your Gemini API key in the sidebar first.")
+        api_ready = bool(st.session_state.get("api_key") and st.session_state.get("api_key_verified"))
+        if not api_ready:
+            st.warning("⚠️ Please enter your Gemini API key in the sidebar.")
+            st.info("💡 **Quick setup:** Get a free key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) → paste in sidebar")
         else:
             if st.button("🔍 Analyze Product (AI)", type="primary", use_container_width=True):
                 progress = st.progress(0, text="📤 Uploading image to Gemini AI...")
