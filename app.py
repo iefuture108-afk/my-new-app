@@ -1,3 +1,6 @@
+# app.py — CarryMe Store: AI-Powered Product Intelligence for Indian Sellers
+# Deploy FREE on Streamlit Cloud · Gemini API (Free Tier) · Zero Cost
+
 import streamlit as st
 from PIL import Image
 import io
@@ -157,6 +160,8 @@ with st.sidebar:
         init_gemini(api_key_input)
         st.session_state.api_key_verified = True
         st.success("✅ API Key loaded!")
+        if len(api_key_input) < 30:
+            st.warning("⚠️ Key looks short — double-check you copied the full key")
 
     st.divider()
 
@@ -241,20 +246,35 @@ if uploaded_file:
             st.warning("⚠️ Please enter your Gemini API key in the sidebar first.")
         else:
             if st.button("🔍 Analyze Product (AI)", type="primary", use_container_width=True):
-                with st.spinner("🤖 Gemini AI is analyzing your product... (5-10 seconds)"):
+                progress = st.progress(0, text="📤 Uploading image to Gemini AI...")
+                status = st.empty()
+                try:
+                    progress.progress(20, text="🤖 Gemini is reading your product...")
                     result = analyze_product_image(
                         image,
                         st.session_state.user_city,
                         st.session_state.user_state
                     )
+                    progress.progress(90, text="✍️ Generating listing & insights...")
                     st.session_state.analysis_result = result
+
                     if result.get("success"):
+                        progress.progress(100, text="✅ Done!")
                         increment_analysis_count()
                         save_analysis(result, uploaded_file.name)
-                        st.success("✅ Analysis complete! See results below in all 3 tabs.")
+                        status.success("✅ Analysis complete! Scroll down to see all 3 tabs.")
                         st.balloons()
                     else:
-                        st.error(result.get("error", "Analysis failed. Please try again."))
+                        progress.empty()
+                        err_msg = result.get("error", "Analysis failed. Please try again.")
+                        if result.get("rate_limited"):
+                            status.warning(f"⏳ {err_msg}\n\n**Tip:** Gemini free tier allows 15 requests/minute. Wait 60 seconds and click Analyze again.")
+                        else:
+                            status.error(err_msg)
+                            st.info("💡 **Common fixes:** Check your API key in the sidebar · Try a clearer photo · Make sure Gemini API is enabled at [aistudio.google.com](https://aistudio.google.com/app/apikey)")
+                except Exception as ex:
+                    progress.empty()
+                    status.error(f"⚠️ Unexpected error: {str(ex)[:300]}")
 
 # ─────────────────────────────────────────
 # RESULTS — 3 TABS
