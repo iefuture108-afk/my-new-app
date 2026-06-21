@@ -1,23 +1,22 @@
-# app.py — CarryMe Store: AI-Powered Product Intelligence for Indian Sellers
-# Deploy FREE on Streamlit Cloud · Gemini API (Free Tier) · Zero Cost
+# ╔══════════════════════════════════════════════════════════════╗
+# ║  CarryMe Store — AI Seller Intelligence                      ║
+# ║  Deploy FREE · Streamlit Cloud · Gemini AI (Free Tier)      ║
+# ╚══════════════════════════════════════════════════════════════╝
 
 import streamlit as st
 from PIL import Image
 import io
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 
 from config import (
-    APP_NAME, APP_TAGLINE, PLATFORMS, SUPPLIERS_DB,
+    APP_NAME, PLATFORMS, SUPPLIERS_DB,
     SELLER_DOCS, INDIAN_STATES
 )
 from ai_engine import init_gemini, analyze_product_image
 from state import init_state, save_analysis, register_user, increment_analysis_count
 
-# ─────────────────────────────────────────
-# PAGE CONFIG
-# ─────────────────────────────────────────
+# ── PAGE CONFIG (must be first Streamlit call) ──────────────────
 st.set_page_config(
     page_title="CarryMe Store — AI Seller Intelligence",
     page_icon="🛍️",
@@ -25,774 +24,678 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ─────────────────────────────────────────
-# CUSTOM CSS
-# ─────────────────────────────────────────
+# ── CSS ─────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  /* Import Google Font */
-  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+html, body, [class*="css"] { font-family: 'Poppins', sans-serif; }
 
-  html, body, [class*="css"] {
-    font-family: 'Poppins', sans-serif;
-  }
+.hero {
+  background: linear-gradient(135deg,#667eea,#764ba2 50%,#f093fb);
+  border-radius:16px; padding:2rem 2.5rem; color:white;
+  margin-bottom:1.5rem; box-shadow:0 8px 32px rgba(102,126,234,.3);
+}
+.hero h1 { font-size:2.2rem; font-weight:700; margin:0; }
+.hero p  { font-size:1rem; opacity:.9; margin:.4rem 0 0 0; }
 
-  /* Hero gradient header */
-  .hero-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-    border-radius: 16px;
-    padding: 2rem 2.5rem;
-    color: white;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
-  }
-  .hero-header h1 { font-size: 2.2rem; font-weight: 700; margin: 0; }
-  .hero-header p { font-size: 1.05rem; opacity: 0.9; margin: 0.4rem 0 0 0; }
+.pcard {
+  border:2px solid #f0f0f0; border-radius:14px; padding:1.2rem;
+  margin-bottom:1rem; background:white;
+  box-shadow:0 2px 12px rgba(0,0,0,.06);
+  transition:all .2s;
+}
+.pcard.best { border-color:#667eea; border-width:3px; }
 
-  /* Platform cards */
-  .platform-card {
-    border: 2px solid #f0f0f0;
-    border-radius: 14px;
-    padding: 1.2rem;
-    margin-bottom: 1rem;
-    background: white;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-    transition: all 0.2s ease;
-  }
-  .platform-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.12); transform: translateY(-2px); }
-  .platform-card.top-pick { border-color: #667eea; border-width: 3px; }
+.scard {
+  border-radius:12px; padding:1.1rem; margin-bottom:.8rem;
+  background:#fafafa;
+}
+.scard.v  { border-left:4px solid #22c55e; }
+.scard.uv { border-left:4px solid #f59e0b; }
 
-  /* Supplier cards */
-  .supplier-card {
-    border: 1px solid #e8e8e8;
-    border-radius: 12px;
-    padding: 1.1rem;
-    margin-bottom: 0.8rem;
-    background: #fafafa;
-  }
-  .supplier-card.verified { border-left: 4px solid #22c55e; }
-  .supplier-card.unverified { border-left: 4px solid #f59e0b; }
+.badge-g { background:#dcfce7;color:#15803d;padding:2px 10px;border-radius:20px;font-size:.8rem;font-weight:600; }
+.badge-b { background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:.8rem;font-weight:600; }
+.badge-o { background:#ffedd5;color:#c2410c;padding:2px 10px;border-radius:20px;font-size:.8rem;font-weight:600; }
 
-  /* Metric badges */
-  .badge-green { background: #dcfce7; color: #15803d; padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-  .badge-blue { background: #dbeafe; color: #1d4ed8; padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-  .badge-orange { background: #ffedd5; color: #c2410c; padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-  .badge-purple { background: #f3e8ff; color: #7e22ce; padding: 2px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-
-  /* Step indicators */
-  .step-box {
-    background: linear-gradient(135deg, #667eea15, #764ba215);
-    border-radius: 10px;
-    padding: 1rem;
-    text-align: center;
-    border: 1px solid #667eea30;
-  }
-
-  /* AI result card */
-  .ai-result {
-    background: linear-gradient(135deg, #f8faff, #f0f4ff);
-    border: 1px solid #c7d2fe;
-    border-radius: 14px;
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-  }
-
-  /* Tabs styling */
-  .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-  .stTabs [data-baseweb="tab"] {
-    font-weight: 600;
-    font-size: 0.95rem;
-    border-radius: 8px 8px 0 0;
-    padding: 10px 20px;
-  }
-
-  /* Warning/info boxes */
-  .info-box {
-    background: #eff6ff;
-    border-left: 4px solid #3b82f6;
-    border-radius: 0 8px 8px 0;
-    padding: 0.8rem 1rem;
-    margin: 0.5rem 0;
-    font-size: 0.9rem;
-  }
-
-  /* Button override */
-  .stButton > button {
-    border-radius: 8px;
-    font-weight: 600;
-    transition: all 0.2s;
-  }
-
-  /* Hide Streamlit branding */
-  #MainMenu {visibility: hidden;}
-  footer {visibility: hidden;}
-  header {visibility: hidden;}
+.ai-box {
+  background:linear-gradient(135deg,#f8faff,#f0f4ff);
+  border:1px solid #c7d2fe; border-radius:14px; padding:1.5rem; margin-bottom:1rem;
+}
+.step-box {
+  background:linear-gradient(135deg,#667eea15,#764ba215);
+  border-radius:10px; padding:1rem; text-align:center;
+  border:1px solid #667eea30;
+}
+.info-box {
+  background:#eff6ff; border-left:4px solid #3b82f6;
+  border-radius:0 8px 8px 0; padding:.8rem 1rem;
+  margin:.5rem 0; font-size:.9rem;
+}
+.key-ok {
+  background:#f0fdf4; border:2px solid #22c55e;
+  border-radius:10px; padding:.8rem 1rem; text-align:center;
+  font-weight:600; color:#15803d; font-size:1rem;
+}
+.key-warn {
+  background:#fffbeb; border:2px solid #f59e0b;
+  border-radius:10px; padding:.8rem 1rem;
+  font-size:.88rem; color:#92400e;
+}
+#MainMenu{visibility:hidden;}footer{visibility:hidden;}header{visibility:hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
-# INIT STATE
-# ─────────────────────────────────────────
+# ── SESSION STATE ────────────────────────────────────────────────
 init_state()
 
-# ─────────────────────────────────────────
-# AUTO-LOAD GEMINI KEY FROM STREAMLIT SECRETS
-# Reads GEMINI_API_KEY saved in App Settings > Secrets
-# ─────────────────────────────────────────
-def _load_api_key_from_secrets() -> str:
-    """Try all common secret names for Gemini API key."""
-    for name in ["GEMINI_API_KEY", "gemini_api_key", "GOOGLE_API_KEY", "google_api_key"]:
+# ── AUTO-LOAD API KEY FROM STREAMLIT SECRETS ────────────────────
+# Tries all common secret key names so any format works
+def _get_secret_key() -> str:
+    """Read Gemini key from st.secrets — tries multiple key names."""
+    for name in ["GEMINI_API_KEY", "gemini_api_key",
+                 "GOOGLE_API_KEY", "google_api_key",
+                 "GEMINI_KEY", "gemini_key"]:
         try:
-            val = st.secrets.get(name, "")
-            if val and len(str(val).strip()) > 10:
-                return str(val).strip()
+            v = st.secrets[name]
+            v = str(v).strip().strip('"').strip("'")
+            v = v.strip().strip('"').strip("'")  # remove accidental quotes
+            if len(v) > 15:
+                return v
         except Exception:
             pass
     return ""
 
+# Only load once per session
 if not st.session_state.get("api_key"):
-    _secret_key = _load_api_key_from_secrets()
-    if _secret_key:
-        st.session_state.api_key = _secret_key
+    _k = _get_secret_key()
+    if _k:
+        st.session_state.api_key = _k
         st.session_state.api_key_verified = True
-        init_gemini(_secret_key)
+        init_gemini(_k)
 
-# ─────────────────────────────────────────────
-# SIDEBAR — API KEY + LOCATION
-# ─────────────────────────────────────────
+# ── SIDEBAR ──────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🛍️ CarryMe Store")
-    st.markdown("*AI Business Intelligence for Indian Sellers*")
+    st.markdown("*AI Intelligence for Indian Sellers*")
     st.divider()
 
-    # API Key section
+    # ── API KEY STATUS ──
     st.markdown("### 🔑 Gemini API Key")
 
-    if st.session_state.get("api_key_verified") and st.session_state.get("api_key"):
-        st.success("✅ API Key active — AI ready!")
-        with st.expander("🔄 Change API Key"):
-            new_key = st.text_input("New key:", type="password", placeholder="AIza...", key="new_key_input")
-            if new_key and new_key.strip():
-                st.session_state.api_key = new_key.strip()
-                init_gemini(new_key.strip())
-                st.success("Key updated!")
+    _has_key = bool(st.session_state.get("api_key") and
+                    st.session_state.get("api_key_verified"))
+
+    if _has_key:
+        st.markdown('<div class="key-ok">✅ AI Ready — Key Active</div>',
+                    unsafe_allow_html=True)
+        with st.expander("🔄 Replace Key"):
+            _new = st.text_input("New key:", type="password",
+                                 placeholder="AIzaSy...", key="_replace_key")
+            if st.button("Update Key") and _new and len(_new.strip()) > 15:
+                _k2 = _new.strip().strip('"').strip("'")
+                st.session_state.api_key = _k2
+                st.session_state.api_key_verified = True
+                init_gemini(_k2)
+                st.success("✅ Key updated!")
+                st.rerun()
     else:
-        st.markdown('<div class="info-box">Get your <b>FREE</b> key at <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a> · 15 req/min free</div>', unsafe_allow_html=True)
-        api_key_input = st.text_input(
-            "Paste Gemini API Key here:",
-            type="password",
-            placeholder="AIza...",
-            help="Free key from Google AI Studio"
-        )
-        if api_key_input and api_key_input.strip():
-            k = api_key_input.strip()
-            st.session_state.api_key = k
-            init_gemini(k)
-            st.session_state.api_key_verified = True
-            if len(k) < 30:
-                st.warning("⚠️ Key looks short — copy the full key")
-            else:
-                st.success("✅ API Key loaded!")
+        # Show helper to get correct key
+        st.markdown("""
+<div class="key-warn">
+⚠️ <b>No API key found.</b><br><br>
+<b>Get your FREE Gemini key:</b><br>
+1. Go to <a href="https://aistudio.google.com/app/apikey" target="_blank">
+   aistudio.google.com/app/apikey</a><br>
+2. Sign in with Google<br>
+3. Click <b>"Create API Key"</b><br>
+4. Key starts with <code>AIzaSy...</code>
+</div>
+""", unsafe_allow_html=True)
+        st.markdown("")
+
+        # Option A: paste in sidebar
+        _manual = st.text_input("Paste key here:", type="password",
+                                placeholder="AIzaSy...", key="_manual_key")
+        if _manual:
+            _k3 = _manual.strip().strip('"').strip("'")
+            if not _k3.startswith("AIza") and len(_k3) < 20:
+                st.error("❌ Wrong format. Gemini keys start with 'AIza'")
+            elif len(_k3) > 15:
+                st.session_state.api_key = _k3
+                st.session_state.api_key_verified = True
+                init_gemini(_k3)
+                st.success("✅ Key loaded!")
                 st.rerun()
 
+        st.markdown("**Or** save it permanently in Streamlit Secrets:")
+        st.code('GEMINI_API_KEY = "AIzaSy...yourkey"', language="toml")
+        st.caption("App Settings → Secrets → paste the line above → Save")
+
     st.divider()
 
-    # Location
+    # ── LOCATION ──
     st.markdown("### 📍 Your Location")
-    city = st.text_input("City / District", value=st.session_state.user_city, placeholder="e.g., Surat, Jaipur, Varanasi")
-    state = st.selectbox("State", [""] + INDIAN_STATES, index=0 if not st.session_state.user_state else (INDIAN_STATES.index(st.session_state.user_state) + 1 if st.session_state.user_state in INDIAN_STATES else 0))
-
-    if city: st.session_state.user_city = city
-    if state: st.session_state.user_state = state
+    _city = st.text_input("City / District",
+                          value=st.session_state.get("user_city",""),
+                          placeholder="e.g. Surat, Jaipur, Varanasi")
+    _state_list = [""] + INDIAN_STATES
+    _cur_state = st.session_state.get("user_state","")
+    _state_idx = (_state_list.index(_cur_state)
+                  if _cur_state in _state_list else 0)
+    _state = st.selectbox("State", _state_list, index=_state_idx)
+    if _city:  st.session_state.user_city  = _city
+    if _state: st.session_state.user_state = _state
 
     st.divider()
 
-    # Stats
+    # ── STATS ──
     st.markdown("### 📊 Your Stats")
-    col1, col2 = st.columns(2)
-    col1.metric("Analyses", st.session_state.analysis_count)
-    col2.metric("Saved", len(st.session_state.products_history))
+    c1, c2 = st.columns(2)
+    c1.metric("Analyses", st.session_state.get("analysis_count", 0))
+    c2.metric("Saved",    len(st.session_state.get("products_history", [])))
 
-    if st.session_state.products_history:
-        st.markdown("**Recent Products:**")
-        for p in st.session_state.products_history[-3:][::-1]:
-            st.markdown(f"• {p['product_name'][:25]}...")
+    _hist = st.session_state.get("products_history", [])
+    if _hist:
+        st.markdown("**Recent:**")
+        for _p in _hist[-3:][::-1]:
+            st.markdown(f"• {_p['product_name'][:22]}…")
 
     st.divider()
-    st.markdown("**Free Tier Limits:**")
-    st.markdown("• 15 analyses/minute")
-    st.markdown("• Unlimited/day")
-    st.markdown("• 100% free forever")
+    st.caption("Free Tier: 15 analyses/min · Unlimited/day · ₹0 forever")
 
-# ─────────────────────────────────────────
-# HERO HEADER
-# ─────────────────────────────────────────
-st.markdown(f"""
-<div class="hero-header">
-  <h1>🛍️ {APP_NAME}</h1>
+# ── HERO HEADER ──────────────────────────────────────────────────
+st.markdown("""
+<div class="hero">
+  <h1>🛍️ CarryMe Store</h1>
   <p>📸 One Photo → Platform Intelligence · Bulk Suppliers · Business Setup</p>
-  <p style="font-size:0.85rem;opacity:0.75;margin-top:0.5rem;">Powered by Google Gemini AI · 100% Free · Built for Tier 3 & 4 India</p>
+  <p style="font-size:.82rem;opacity:.75;margin-top:.5rem;">
+    Powered by Google Gemini AI · 100% Free · Built for Tier 3 &amp; 4 India
+  </p>
 </div>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────
-# IMAGE UPLOAD SECTION
-# ─────────────────────────────────────────
+# ── UPLOAD SECTION ───────────────────────────────────────────────
 st.markdown("## 📸 Upload Your Product Photo")
 
-upload_col, tip_col = st.columns([2, 1])
-
-with upload_col:
-    uploaded_file = st.file_uploader(
+u_col, t_col = st.columns([2, 1])
+with u_col:
+    uploaded = st.file_uploader(
         "Upload a clear product image",
-        type=["jpg", "jpeg", "png", "webp"],
-        help="Plain background photos work best. Min 400x400px."
+        type=["jpg","jpeg","png","webp"],
+        help="Plain background, good lighting, 400×400px minimum"
     )
-
-with tip_col:
+with t_col:
     st.markdown("""
-    <div class="step-box">
-      <b>📸 Photo Tips</b><br><br>
-      ✅ Plain white/light background<br>
-      ✅ Good natural lighting<br>
-      ✅ Product centered in frame<br>
-      ✅ Multiple angles if possible<br>
-      ❌ Avoid blurry or dark photos
-    </div>
-    """, unsafe_allow_html=True)
+<div class="step-box">
+  <b>📸 Photo Tips</b><br><br>
+  ✅ Plain white/light background<br>
+  ✅ Good natural lighting<br>
+  ✅ Product centered in frame<br>
+  ❌ Avoid blurry / dark photos
+</div>""", unsafe_allow_html=True)
 
-# Show uploaded image + analyze button
-if uploaded_file:
-    image = Image.open(uploaded_file)
+# ── ANALYZE ──────────────────────────────────────────────────────
+if uploaded:
+    image = Image.open(uploaded)
     st.session_state.uploaded_image = image
 
-    img_col, btn_col = st.columns([1, 2])
-    with img_col:
+    i_col, b_col = st.columns([1, 2])
+    with i_col:
         st.image(image, caption="Your Product", use_container_width=True)
-    with btn_col:
+
+    with b_col:
         st.markdown("### 🤖 AI Analysis Ready")
-        st.markdown(f"**File:** {uploaded_file.name}")
+        st.markdown(f"**File:** {uploaded.name}")
         st.markdown(f"**Size:** {image.size[0]}×{image.size[1]}px")
 
-        api_ready = bool(st.session_state.get("api_key") and st.session_state.get("api_key_verified"))
-        if not api_ready:
-            st.warning("⚠️ Please enter your Gemini API key in the sidebar.")
-            st.info("💡 **Quick setup:** Get a free key at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) → paste in sidebar")
-        else:
-            if st.button("🔍 Analyze Product (AI)", type="primary", use_container_width=True):
-                progress = st.progress(0, text="📤 Uploading image to Gemini AI...")
-                status = st.empty()
-                try:
-                    progress.progress(20, text="🤖 Gemini is reading your product...")
-                    result = analyze_product_image(
-                        image,
-                        st.session_state.user_city,
-                        st.session_state.user_state
-                    )
-                    progress.progress(90, text="✍️ Generating listing & insights...")
-                    st.session_state.analysis_result = result
+        _key_ok = bool(st.session_state.get("api_key") and
+                       st.session_state.get("api_key_verified"))
 
-                    if result.get("success"):
-                        progress.progress(100, text="✅ Done!")
+        if not _key_ok:
+            st.markdown("""
+<div class="key-warn" style="margin-top:1rem;">
+  ⚠️ <b>API key needed to analyze.</b><br><br>
+  👈 Enter your Gemini key in the <b>sidebar</b>.<br><br>
+  Get a free key at
+  <a href="https://aistudio.google.com/app/apikey" target="_blank">
+  aistudio.google.com/app/apikey</a><br>
+  (Google sign-in → Create API Key → starts with <code>AIzaSy...</code>)
+</div>""", unsafe_allow_html=True)
+        else:
+            if st.button("🔍 Analyze Product (AI)",
+                         type="primary", use_container_width=True):
+                _bar = st.progress(0, text="📤 Sending image to Gemini AI…")
+                _msg = st.empty()
+                try:
+                    _bar.progress(25, text="🤖 Gemini is reading your product…")
+                    _result = analyze_product_image(
+                        image,
+                        st.session_state.get("user_city",""),
+                        st.session_state.get("user_state","")
+                    )
+                    _bar.progress(85, text="✍️ Building your insights…")
+                    st.session_state.analysis_result = _result
+
+                    if _result.get("success"):
+                        _bar.progress(100, text="✅ Done!")
                         increment_analysis_count()
-                        save_analysis(result, uploaded_file.name)
-                        status.success("✅ Analysis complete! Scroll down to see all 3 tabs.")
+                        save_analysis(_result, uploaded.name)
+                        _msg.success("✅ Analysis complete! Scroll down ↓")
                         st.balloons()
                     else:
-                        progress.empty()
-                        err_msg = result.get("error", "Analysis failed. Please try again.")
-                        if result.get("rate_limited"):
-                            status.warning(f"⏳ {err_msg}\n\n**Tip:** Gemini free tier allows 15 requests/minute. Wait 60 seconds and click Analyze again.")
+                        _bar.empty()
+                        _err = _result.get("error","Analysis failed.")
+                        if _result.get("rate_limited"):
+                            _msg.warning(f"{_err}\n\n⏳ Wait 60 seconds then try again.")
                         else:
-                            status.error(err_msg)
-                            st.info("💡 **Common fixes:** Check your API key in the sidebar · Try a clearer photo · Make sure Gemini API is enabled at [aistudio.google.com](https://aistudio.google.com/app/apikey)")
-                except Exception as ex:
-                    progress.empty()
-                    status.error(f"⚠️ Unexpected error: {str(ex)[:300]}")
+                            _msg.error(_err)
+                            st.info("💡 **Fix:** Check your API key · Use clearer photo · "
+                                    "Enable Gemini at [aistudio.google.com](https://aistudio.google.com)")
+                except Exception as _ex:
+                    _bar.empty()
+                    _msg.error(f"⚠️ Error: {str(_ex)[:250]}")
 
-# ─────────────────────────────────────────
-# RESULTS — 3 TABS
-# ─────────────────────────────────────────
-result = st.session_state.analysis_result
+# ── RESULTS TABS ─────────────────────────────────────────────────
+_res = st.session_state.get("analysis_result")
 
-if result and result.get("success"):
-    product_category = result.get("category", "General")
+if _res and _res.get("success"):
+    _cat = _res.get("category","General")
+    _pname = _res.get("product_name","Your Product")
 
-    # Quick product summary
     st.markdown("---")
     st.markdown(f"""
-    <div class="ai-result">
-      <h3>🎯 {result.get('product_name', 'Your Product')}</h3>
-      <p><b>Category:</b> {product_category} &nbsp;|&nbsp; <b>Sub-category:</b> {result.get('sub_category', '—')} &nbsp;|&nbsp; <b>Origin:</b> {result.get('origin_hint', 'Indian Craft')}</p>
-      <p><b>Suggested Price:</b> ₹{result.get('price_suggestion', {}).get('min', 0)} – ₹{result.get('price_suggestion', {}).get('max', 0)}</p>
-      <p><b>💡 Seller Tip:</b> {result.get('seller_tip', '')}</p>
-    </div>
-    """, unsafe_allow_html=True)
+<div class="ai-box">
+  <h3>🎯 {_pname}</h3>
+  <p><b>Category:</b> {_cat} &nbsp;|&nbsp;
+     <b>Sub:</b> {_res.get('sub_category','—')} &nbsp;|&nbsp;
+     <b>Origin:</b> {_res.get('origin_hint','Indian Craft')}</p>
+  <p><b>Suggested Price:</b>
+     ₹{_res.get('price_suggestion',{}).get('min',0)} –
+     ₹{_res.get('price_suggestion',{}).get('max',0)} INR</p>
+  <p><b>💡 Tip:</b> {_res.get('seller_tip','')}</p>
+</div>
+""", unsafe_allow_html=True)
 
-    # ─── 3 TABS ───
     tab1, tab2, tab3 = st.tabs([
-        "🏆 Tab 1: Platform Intelligence",
-        "📦 Tab 2: Bulk Suppliers & Contacts",
-        "🚀 Tab 3: Seller & Buyer Registration"
+        "🏆 Tab 1 — Platform Intelligence",
+        "📦 Tab 2 — Bulk Suppliers & Contacts",
+        "🚀 Tab 3 — Register Seller / Buyer"
     ])
 
-    # ═══════════════════════════════════════
-    # TAB 1: PLATFORM INTELLIGENCE
-    # ═══════════════════════════════════════
+    # ══════════════════════════════════════
+    # TAB 1 — PLATFORM INTELLIGENCE
+    # ══════════════════════════════════════
     with tab1:
-        st.markdown("## 🏆 Which Platform is Best for Your Product?")
-        st.markdown(f"*Analysis for: **{result.get('product_name', 'Your Product')}** · Category: **{product_category}***")
+        st.markdown(f"## 🏆 Best Platforms for Your Product")
+        st.markdown(f"*Product: **{_pname}** · Category: **{_cat}***")
 
-        # Build platform comparison data
-        platform_data = []
-        for pname, pinfo in PLATFORMS.items():
-            cat_data = pinfo["categories"].get(product_category, pinfo["categories"]["General"])
-            platform_data.append({
-                "Platform": pname,
-                "Score": cat_data["score"],
-                "Avg Rating": cat_data["avg_rating"],
-                "Reviews": f"{cat_data['reviews']:,}",
-                "Commission": f"{pinfo['commission']}%",
-                "Price Range": f"₹{cat_data['price_range'][0]}–₹{cat_data['price_range'][1]}",
-                "Est. Orders": cat_data["orders_range"],
-                "logo": pinfo["logo"],
-                "color": pinfo["color"],
-                "signup_url": pinfo["signup_url"],
-                "pros": pinfo["pros"],
-                "cons": pinfo["cons"],
-                "gst_required": pinfo["gst_required"],
+        _pdata = []
+        for _pn, _pi in PLATFORMS.items():
+            _cd = _pi["categories"].get(_cat, _pi["categories"]["General"])
+            _pdata.append({
+                "name":_pn, "score":_cd["score"],
+                "rating":_cd["avg_rating"], "reviews":_cd["reviews"],
+                "commission":_pi["commission"],
+                "price_range":_cd["price_range"],
+                "orders":_cd["orders_range"],
+                "logo":_pi["logo"], "color":_pi["color"],
+                "url":_pi["signup_url"],
+                "pros":_pi["pros"], "cons":_pi["cons"],
+                "gst":_pi["gst_required"],
             })
+        _pdata.sort(key=lambda x: x["score"], reverse=True)
 
-        # Sort by score
-        platform_data.sort(key=lambda x: x["Score"], reverse=True)
-
-        # ── Comparison Bar Chart ──
-        fig = go.Figure()
-        colors_list = [p["color"] for p in platform_data]
-        fig.add_trace(go.Bar(
-            x=[p["Platform"] for p in platform_data],
-            y=[p["Score"] for p in platform_data],
-            marker_color=colors_list,
-            text=[f"{p['Score']}%" for p in platform_data],
+        # Bar chart
+        _fig = go.Figure(go.Bar(
+            x=[p["name"] for p in _pdata],
+            y=[p["score"] for p in _pdata],
+            marker_color=[p["color"] for p in _pdata],
+            text=[f"{p['score']}%" for p in _pdata],
             textposition="outside",
         ))
-        fig.update_layout(
-            title=f"Platform Match Score for '{product_category}'",
-            yaxis_title="Match Score (%)",
-            yaxis_range=[0, 100],
-            showlegend=False,
-            height=280,
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)',
+        _fig.update_layout(
+            title=f"Platform Match Score for '{_cat}'",
+            yaxis_title="Match %", yaxis_range=[0,105],
+            showlegend=False, height=260,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(_fig, use_container_width=True)
 
-        # ── Platform Cards ──
-        for i, p in enumerate(platform_data):
-            is_top = (i == 0)
-            card_class = "platform-card top-pick" if is_top else "platform-card"
+        # Platform cards
+        for _i, _p in enumerate(_pdata):
+            _best = (_i == 0)
+            _lc, _dc, _bc = st.columns([1, 3, 1.5])
 
-            col_logo, col_details, col_cta = st.columns([1, 3, 1.5])
+            with _lc:
+                st.markdown(
+                    f"<div style='font-size:3rem;text-align:center;padding-top:.5rem'>"
+                    f"{_p['logo']}</div>", unsafe_allow_html=True)
+                if _best:
+                    st.markdown(
+                        "<div style='text-align:center'>"
+                        "<span class='badge-g'>🏅 BEST MATCH</span></div>",
+                        unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='text-align:center;font-size:1.3rem;"
+                    f"font-weight:700;color:{_p['color']}'>{_p['score']}%</div>",
+                    unsafe_allow_html=True)
 
-            with col_logo:
-                st.markdown(f"<div style='font-size:3rem;text-align:center;padding-top:1rem'>{p['logo']}</div>", unsafe_allow_html=True)
-                if is_top:
-                    st.markdown("<div style='text-align:center'><span class='badge-green'>🏅 BEST MATCH</span></div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='text-align:center;font-size:1.4rem;font-weight:700;color:{p['color']}'>{p['Score']}%</div>", unsafe_allow_html=True)
-
-            with col_details:
-                st.markdown(f"### {p['Platform']}")
-                m1, m2, m3 = st.columns(3)
-                m1.metric("⭐ Avg Rating", p["Avg Rating"])
-                m2.metric("📝 Reviews", p["Reviews"])
-                m3.metric("💸 Commission", p["Commission"])
-
-                m4, m5 = st.columns(2)
-                m4.metric("💰 Price Range", p["Price Range"])
-                m5.metric("📦 Est. Orders", p["Est. Orders"])
-
-                gst_badge = "⚠️ GST Required" if p["gst_required"] else "✅ No GST Needed"
-                st.markdown(f"<span class='badge-{'orange' if p['gst_required'] else 'green'}'>{gst_badge}</span>", unsafe_allow_html=True)
-
-                with st.expander("View Pros & Cons"):
-                    pc1, pc2 = st.columns(2)
-                    with pc1:
+            with _dc:
+                st.markdown(f"### {_p['name']}")
+                _m1,_m2,_m3 = st.columns(3)
+                _m1.metric("⭐ Rating",     _p["rating"])
+                _m2.metric("📝 Reviews",   f"{_p['reviews']:,}")
+                _m3.metric("💸 Commission",f"{_p['commission']}%")
+                _m4,_m5 = st.columns(2)
+                _m4.metric("💰 Price",
+                           f"₹{_p['price_range'][0]}–₹{_p['price_range'][1]}")
+                _m5.metric("📦 Est.Orders", _p["orders"])
+                _gb = "badge-o" if _p["gst"] else "badge-g"
+                _gt = "⚠️ GST Needed" if _p["gst"] else "✅ No GST"
+                st.markdown(f"<span class='{_gb}'>{_gt}</span>",
+                            unsafe_allow_html=True)
+                with st.expander("Pros & Cons"):
+                    _pa, _pb = st.columns(2)
+                    with _pa:
                         st.markdown("**✅ Pros:**")
-                        for pro in p["pros"]:
-                            st.markdown(f"• {pro}")
-                    with pc2:
+                        for _x in _p["pros"]: st.markdown(f"• {_x}")
+                    with _pb:
                         st.markdown("**❌ Cons:**")
-                        for con in p["cons"]:
-                            st.markdown(f"• {con}")
+                        for _x in _p["cons"]: st.markdown(f"• {_x}")
 
-            with col_cta:
+            with _bc:
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.link_button(
-                    f"Register as Seller →",
-                    p["signup_url"],
-                    use_container_width=True,
-                    type="primary" if is_top else "secondary"
-                )
-                st.markdown(f"<div style='font-size:0.75rem;color:#888;text-align:center;margin-top:4px'>Opens {p['Platform']} seller portal</div>", unsafe_allow_html=True)
-
+                st.link_button("Register as Seller →", _p["url"],
+                               use_container_width=True,
+                               type="primary" if _best else "secondary")
             st.divider()
 
-        # ── AI Listing Content ──
-        st.markdown("### ✍️ Your AI-Generated Product Listing")
-        list_col1, list_col2 = st.columns(2)
-        with list_col1:
-            st.markdown("**📋 Listing Title (copy-paste ready):**")
-            st.code(result.get("listing_title", ""), language=None)
-
+        # AI-generated listing
+        st.markdown("### ✍️ Your AI-Generated Listing")
+        _lc1, _lc2 = st.columns(2)
+        with _lc1:
+            st.markdown("**📋 Listing Title:**")
+            st.code(_res.get("listing_title",""), language=None)
             st.markdown("**🏷️ SEO Tags:**")
-            tags = result.get("seo_tags", [])
-            st.code(", ".join(tags), language=None)
+            st.code(", ".join(_res.get("seo_tags",[])), language=None)
+        with _lc2:
+            st.markdown("**📝 Description:**")
+            st.text_area("", value=_res.get("listing_description",""),
+                         height=200, label_visibility="collapsed")
 
-        with list_col2:
-            st.markdown("**📝 Product Description:**")
-            st.text_area("", value=result.get("listing_description", ""), height=200, label_visibility="collapsed")
+        _usps = _res.get("unique_selling_points",[])
+        if _usps:
+            st.markdown("**🌟 Unique Selling Points:**")
+            _uc = st.columns(len(_usps))
+            for _i,_u in enumerate(_usps):
+                _uc[_i].markdown(
+                    f"<div class='step-box'>🎯 {_u}</div>",
+                    unsafe_allow_html=True)
 
-        # USPs
-        st.markdown("**🌟 Unique Selling Points:**")
-        usps = result.get("unique_selling_points", [])
-        usp_cols = st.columns(len(usps) if usps else 1)
-        for i, usp in enumerate(usps):
-            usp_cols[i].markdown(f"<div class='step-box'>🎯 {usp}</div>", unsafe_allow_html=True)
-
-    # ═══════════════════════════════════════
-    # TAB 2: BULK SUPPLIERS & CONTACTS
-    # ═══════════════════════════════════════
+    # ══════════════════════════════════════
+    # TAB 2 — SUPPLIERS
+    # ══════════════════════════════════════
     with tab2:
         st.markdown("## 📦 Raw Material Suppliers & Bulk Contacts")
+        _loc_display = (f"{st.session_state.get('user_city','')}, "
+                        f"{st.session_state.get('user_state','')}").strip(", ") or "All India"
+        st.markdown(f"*Category: **{_cat}** · Your location: **{_loc_display}***")
 
-        user_city = st.session_state.user_city
-        user_state = st.session_state.user_state
+        _loc_q = st.text_input(
+            "🔍 Search suppliers by city/state:",
+            placeholder="e.g. Mumbai, Rajasthan, Gujarat", key="sup_loc")
+        _search = _loc_q.lower().strip() if _loc_q else \
+                  st.session_state.get("user_city","").lower()
 
-        location_display = f"{user_city}, {user_state}" if user_city or user_state else "All India"
-        st.markdown(f"*Showing suppliers for: **{product_category}** · Location: **{location_display}***")
+        _sups = SUPPLIERS_DB.get(_cat, SUPPLIERS_DB.get("General",[]))
+        if _search:
+            _filtered = [s for s in _sups
+                         if _search in s["city"].lower()
+                         or _search in s["state"].lower()]
+            if not _filtered:
+                st.info(f"No suppliers found for '{_loc_q}'. Showing all.")
+                _filtered = _sups
+        else:
+            _filtered = _sups
 
-        # Location override
-        loc_override = st.text_input("🔍 Search suppliers in a different city:", placeholder="Type city name...", key="loc_search")
-        search_city = loc_override.lower() if loc_override else user_city.lower()
-
-        # Get suppliers for this category
-        suppliers = SUPPLIERS_DB.get(product_category, SUPPLIERS_DB.get("General", []))
-        all_suppliers = SUPPLIERS_DB.get("General", [])
-
-        # Filter by location if provided
-        filtered_suppliers = suppliers
-        if search_city and search_city.strip():
-            filtered_suppliers = [s for s in suppliers if search_city in s["city"].lower() or search_city in s["state"].lower()]
-            if not filtered_suppliers:
-                st.info(f"No local suppliers found for '{search_city}'. Showing all India suppliers.")
-                filtered_suppliers = suppliers
-
-        if not filtered_suppliers:
-            filtered_suppliers = all_suppliers
-
-        # Supplier count summary
-        verified_count = sum(1 for s in filtered_suppliers if s["verified"])
-        st.markdown(f"Found **{len(filtered_suppliers)} suppliers** · {verified_count} verified ✅")
+        _v = sum(1 for s in _filtered if s["verified"])
+        st.markdown(f"**{len(_filtered)} suppliers found** · {_v} verified ✅")
         st.divider()
 
-        # ── Supplier Cards ──
-        for s in filtered_suppliers:
-            verified_class = "verified" if s["verified"] else "unverified"
-            verified_label = "✅ Verified Supplier" if s["verified"] else "⚠️ Unverified (Call to confirm)"
+        for _s in _filtered:
+            _cls = "v" if _s["verified"] else "uv"
+            _vlabel = ("✅ Verified" if _s["verified"]
+                       else "⚠️ Unverified — confirm before ordering")
+            _si, _sm, _sc = st.columns([2.5,1.5,1.5])
 
-            with st.container():
-                col_info, col_moq, col_contact = st.columns([2.5, 1.5, 1.5])
+            with _si:
+                st.markdown(f"#### 🏭 {_s['name']}")
+                st.markdown(f"📍 **{_s['city']}, {_s['state']}**")
+                st.markdown(f"🔧 {_s['type']}")
+                _bc2 = "badge-g" if _s["verified"] else "badge-o"
+                st.markdown(f"<span class='{_bc2}'>{_vlabel}</span>",
+                            unsafe_allow_html=True)
+            with _sm:
+                st.markdown("**📦 MOQ:**")
+                st.markdown(f"Min: **{_s['moq']}**")
+                st.markdown(f"Price: **{_s['price']}**")
+            with _sc:
+                _wa = (f"https://wa.me/{_s['whatsapp']}"
+                       f"?text=Hi%2C+I+need+{_cat.replace(' ','+')}+"
+                       f"in+bulk.+Please+share+MOQ+and+price+details.")
+                st.link_button("💬 WhatsApp",  _wa,              use_container_width=True)
+                st.link_button("🗺️ Map",       _s["maps_url"],   use_container_width=True)
+            st.divider()
 
-                with col_info:
-                    st.markdown(f"#### 🏭 {s['name']}")
-                    st.markdown(f"📍 **{s['city']}, {s['state']}**")
-                    st.markdown(f"🔧 **Supplies:** {s['type']}")
-                    badge_color = "green" if s["verified"] else "orange"
-                    st.markdown(f"<span class='badge-{badge_color}'>{verified_label}</span>", unsafe_allow_html=True)
+        st.markdown("### 🌐 Search More on B2B Platforms")
+        _b1,_b2,_b3 = st.columns(3)
+        with _b1:
+            st.markdown('<div class="step-box"><b>🇮🇳 IndiaMART</b><br>'
+                        'India\'s largest B2B · 10M+ suppliers</div>',
+                        unsafe_allow_html=True)
+            st.link_button(
+                "Search IndiaMART →",
+                f"https://www.indiamart.com/search.mp?ss={_cat.replace(' ','+')}",
+                use_container_width=True)
+        with _b2:
+            st.markdown('<div class="step-box"><b>🔄 TradeIndia</b><br>'
+                        'Pan-India wholesale · 3M+ suppliers</div>',
+                        unsafe_allow_html=True)
+            st.link_button("Search TradeIndia →",
+                           "https://www.tradeindia.com",
+                           use_container_width=True)
+        with _b3:
+            st.markdown('<div class="step-box"><b>🏛️ MSME Clusters</b><br>'
+                        'Govt-verified artisan clusters</div>',
+                        unsafe_allow_html=True)
+            st.link_button("MSME Directory →",
+                           "https://msme.gov.in/1-industrial-clusters",
+                           use_container_width=True)
 
-                with col_moq:
-                    st.markdown("**📦 MOQ Details:**")
-                    st.markdown(f"Min Order: **{s['moq']}**")
-                    st.markdown(f"Price: **{s['price']}**")
+        # WhatsApp template
+        st.markdown("### 📋 Ready-to-Send WhatsApp Template")
+        _mats = ", ".join(_res.get("materials",["raw materials"]))
+        _tmpl = (f"Hi,\n\nI am a small handmade seller looking for "
+                 f"bulk {_cat} materials.\n\n"
+                 f"Product: {_pname}\nMaterials: {_mats}\n"
+                 f"Location: {_loc_display}\n\n"
+                 f"Please share:\n• MOQ (minimum order)\n"
+                 f"• Price per unit\n• Delivery time\n• Payment terms\n\nThank you!")
+        st.text_area("Copy & send on WhatsApp:", value=_tmpl, height=220)
 
-                with col_contact:
-                    st.markdown("**📱 Contact:**")
-                    wa_url = f"https://wa.me/{s['whatsapp']}?text=Hi%2C+I+am+a+small+seller+looking+for+{product_category.replace(' ', '+')}+in+bulk.+Can+you+share+MOQ+and+price+details%3F"
-                    st.link_button("💬 WhatsApp", wa_url, use_container_width=True)
-                    st.link_button("🗺️ View on Map", s["maps_url"], use_container_width=True)
-
-                st.divider()
-
-        # ── Additional B2B Platforms ──
-        st.markdown("### 🌐 Also Search on These Platforms")
-        b2b_col1, b2b_col2, b2b_col3 = st.columns(3)
-
-        with b2b_col1:
-            st.markdown("""
-            <div class="step-box">
-              <b>🇮🇳 IndiaMART</b><br><br>
-              India's largest B2B marketplace<br>
-              10M+ verified suppliers
-            </div>
-            """, unsafe_allow_html=True)
-            st.link_button("Search IndiaMART", f"https://www.indiamart.com/search.mp?ss={product_category.replace(' ', '+')}", use_container_width=True)
-
-        with b2b_col2:
-            st.markdown("""
-            <div class="step-box">
-              <b>🔄 TradeIndia</b><br><br>
-              Pan-India wholesale directory<br>
-              3M+ suppliers listed
-            </div>
-            """, unsafe_allow_html=True)
-            st.link_button("Search TradeIndia", f"https://www.tradeindia.com/Wholesale/{product_category.replace(' ', '-')}.html", use_container_width=True)
-
-        with b2b_col3:
-            st.markdown("""
-            <div class="step-box">
-              <b>🏛️ MSME Directory</b><br><br>
-              Govt-verified artisan clusters<br>
-              GI-tagged craft districts
-            </div>
-            """, unsafe_allow_html=True)
-            st.link_button("MSME Clusters", "https://msme.gov.in/1-industrial-clusters", use_container_width=True)
-
-        # ── WhatsApp message template ──
-        st.markdown("### 📋 Ready-to-Send WhatsApp Message Template")
-        wa_template = f"""Hi,
-
-I am a small handmade product seller looking for bulk raw materials for {product_category}.
-
-Product: {result.get('product_name', 'Handmade product')}
-Materials needed: {', '.join(result.get('materials', ['raw materials']))}
-
-Please share:
-• MOQ (minimum order quantity)
-• Price per unit/meter/kg
-• Payment terms
-• Delivery time to {location_display}
-
-Thank you!"""
-        st.text_area("Copy this message:", value=wa_template, height=200)
-
-    # ═══════════════════════════════════════
-    # TAB 3: SELLER & BUYER REGISTRATION
-    # ═══════════════════════════════════════
+    # ══════════════════════════════════════
+    # TAB 3 — REGISTRATION
+    # ══════════════════════════════════════
     with tab3:
         st.markdown("## 🚀 One-Click Business Setup")
+        _r1,_r2,_r3 = st.tabs(["📋 Docs Checklist",
+                                "👤 Seller Registration",
+                                "🛒 Buyer Registration"])
 
-        reg_tab1, reg_tab2, reg_tab3 = st.tabs(["📋 Document Checklist", "👤 Register as Seller", "🛒 Register as Buyer"])
-
-        # ── Document Checklist ──
-        with reg_tab1:
-            st.markdown("### 📋 What You Need to Start Selling")
-            st.markdown(f"*For your product: **{result.get('product_name', '')}***")
-            st.markdown("")
-
-            for doc in SELLER_DOCS:
-                col_check, col_doc, col_note = st.columns([0.5, 2, 3])
-                with col_check:
-                    checked = st.checkbox("", key=f"doc_{doc['doc']}", value=False)
-                with col_doc:
-                    req_label = "🔴 Required" if doc["required"] else "🟡 Optional"
-                    st.markdown(f"**{doc['doc']}**")
-                    st.markdown(f"<span class='badge-{'orange' if doc['required'] else 'blue'}'>{req_label}</span>", unsafe_allow_html=True)
-                with col_note:
-                    st.markdown(f"*{doc['note']}*")
-                    platforms_str = " · ".join(doc["platforms"])
-                    st.markdown(f"<small>Needed for: {platforms_str}</small>", unsafe_allow_html=True)
+        with _r1:
+            st.markdown("### 📋 Documents You Need to Start Selling")
+            for _d in SELLER_DOCS:
+                _dc1,_dc2,_dc3 = st.columns([.5,2,3])
+                with _dc1: st.checkbox("", key=f"doc_{_d['doc']}")
+                with _dc2:
+                    _rb = "badge-o" if _d["required"] else "badge-b"
+                    _rl = "🔴 Required" if _d["required"] else "🟡 Optional"
+                    st.markdown(f"**{_d['doc']}**")
+                    st.markdown(f"<span class='{_rb}'>{_rl}</span>",
+                                unsafe_allow_html=True)
+                with _dc3:
+                    st.markdown(f"*{_d['note']}*")
                 st.divider()
 
-            st.markdown("### 🔗 Direct Platform Registration Links")
-            p_col1, p_col2, p_col3 = st.columns(3)
-            with p_col1:
-                st.markdown("**🛍️ Meesho**")
-                st.markdown("No GST · No listing fee")
-                st.link_button("Register on Meesho →", "https://supplier.meesho.com", use_container_width=True, type="primary")
-            with p_col2:
-                st.markdown("**⭐ Flipkart**")
-                st.markdown("Ekart logistics · PAN needed")
-                st.link_button("Register on Flipkart →", "https://seller.flipkart.com", use_container_width=True)
-            with p_col3:
-                st.markdown("**📦 Amazon India**")
-                st.markdown("GST preferred · FBA available")
-                st.link_button("Register on Amazon →", "https://sell.amazon.in", use_container_width=True)
+            st.markdown("### 🔗 Register Directly")
+            _rp1,_rp2,_rp3 = st.columns(3)
+            with _rp1:
+                st.markdown("**🛍️ Meesho**\nNo GST · No listing fee")
+                st.link_button("Register →","https://supplier.meesho.com",
+                               use_container_width=True, type="primary")
+            with _rp2:
+                st.markdown("**⭐ Flipkart**\nEkart logistics · PAN needed")
+                st.link_button("Register →","https://seller.flipkart.com",
+                               use_container_width=True)
+            with _rp3:
+                st.markdown("**📦 Amazon India**\nFBA available · GST preferred")
+                st.link_button("Register →","https://sell.amazon.in",
+                               use_container_width=True)
 
-            # MSME scheme
             st.markdown("---")
-            st.markdown("### 🏛️ Government Schemes for Small Sellers")
-            gov_col1, gov_col2 = st.columns(2)
-            with gov_col1:
-                st.markdown("""
-                **📜 Udyam Registration (Free MSME)**
-                - Free government MSME certificate
-                - Priority loans at lower interest
-                - Government scheme access
-                """)
-                st.link_button("Register for Udyam →", "https://udyamregistration.gov.in", use_container_width=True)
-            with gov_col2:
-                st.markdown("""
-                **🎨 GI Tag & Craft Board**
-                - Protect your craft's geographical origin
-                - Premium pricing recognition
-                - Export market access
-                """)
-                st.link_button("Explore Craft Board →", "https://www.craftcouncilofindia.org", use_container_width=True)
+            st.markdown("### 🏛️ Government Schemes")
+            _gs1,_gs2 = st.columns(2)
+            with _gs1:
+                st.markdown("**📜 Udyam (Free MSME)**\n"
+                            "Priority loans · Scheme access")
+                st.link_button("Register →",
+                               "https://udyamregistration.gov.in",
+                               use_container_width=True)
+            with _gs2:
+                st.markdown("**🎨 Craft Board**\n"
+                            "GI Tag · Export access")
+                st.link_button("Explore →",
+                               "https://www.craftcouncilofindia.org",
+                               use_container_width=True)
 
-        # ── Seller Registration ──
-        with reg_tab2:
-            st.markdown("### 👤 Create Your CarryMe Seller Account")
-            st.markdown("*Save your analyses, track products, get personalized insights*")
-            st.markdown("")
-
-            with st.form("seller_registration"):
-                s_col1, s_col2 = st.columns(2)
-                with s_col1:
-                    s_name = st.text_input("Full Name *", placeholder="e.g., Priya Sharma")
-                    s_phone = st.text_input("Mobile Number *", placeholder="e.g., 9876543210")
-                    s_city = st.text_input("City / District *", placeholder="e.g., Surat", value=st.session_state.user_city)
-                with s_col2:
-                    s_state = st.selectbox("State *", ["Select State"] + INDIAN_STATES)
-                    s_category = st.selectbox("Main Product Category *", list(PLATFORMS["Meesho"]["categories"].keys()))
-                    s_platform = st.multiselect("Platforms you want to sell on:", ["Meesho", "Flipkart", "Amazon India"], default=["Meesho"])
-
-                s_product = st.text_input("Your Current Product", placeholder=result.get('product_name', 'e.g., Handmade Dupatta'), value=result.get('product_name', ''))
-                s_business = st.text_input("Business/Store Name (optional)", placeholder="e.g., Priya Crafts")
-                s_experience = st.radio("Selling Experience:", ["New seller (just starting)", "1-2 years", "3+ years"], horizontal=True)
-                s_agree = st.checkbox("I agree to CarryMe Store terms and privacy policy")
-
-                submitted = st.form_submit_button("🚀 Create Seller Account", type="primary", use_container_width=True)
-
-                if submitted:
-                    if not s_name or not s_phone or s_state == "Select State":
-                        st.error("Please fill all required fields (marked with *)")
-                    elif not s_agree:
-                        st.warning("Please agree to the terms to continue.")
+        with _r2:
+            st.markdown("### 👤 Register as a CarryMe Seller")
+            with st.form("seller_form"):
+                _sc1,_sc2 = st.columns(2)
+                with _sc1:
+                    _sn = st.text_input("Full Name *", placeholder="Priya Sharma")
+                    _sp = st.text_input("Mobile *", placeholder="9876543210")
+                    _sci= st.text_input("City *",
+                                        value=st.session_state.get("user_city",""),
+                                        placeholder="Surat")
+                with _sc2:
+                    _ss = st.selectbox("State *", ["Select"]+INDIAN_STATES)
+                    _sc = st.selectbox("Category *",
+                                       list(PLATFORMS["Meesho"]["categories"].keys()))
+                    _sm = st.multiselect("Platforms:", ["Meesho","Flipkart","Amazon India"],
+                                         default=["Meesho"])
+                _spr = st.text_input("Product Name", value=_pname)
+                _sb  = st.text_input("Business/Store Name (optional)",
+                                     placeholder="e.g. Priya Crafts")
+                _se  = st.radio("Experience:", ["New","1–2 years","3+ years"],
+                                horizontal=True)
+                _sa  = st.checkbox("I agree to CarryMe terms & privacy policy")
+                _sub = st.form_submit_button("🚀 Create Seller Account",
+                                             type="primary", use_container_width=True)
+                if _sub:
+                    if not _sn or not _sp or _ss == "Select":
+                        st.error("Fill all required (*) fields.")
+                    elif not _sa:
+                        st.warning("Please agree to terms.")
                     else:
-                        seller_data = {
-                            "name": s_name, "phone": s_phone, "city": s_city,
-                            "state": s_state, "category": s_category,
-                            "platforms": s_platform, "product": s_product,
-                            "business_name": s_business or f"{s_name} Crafts",
-                            "experience": s_experience
-                        }
-                        register_user("seller", seller_data)
-                        st.success(f"🎉 Welcome to CarryMe, {s_name}! Your seller ID: {seller_data.get('id', 'S1001')}")
+                        _sdata = {"name":_sn,"phone":_sp,"city":_sci,
+                                  "state":_ss,"category":_sc,"platforms":_sm,
+                                  "product":_spr,"business":_sb or f"{_sn} Crafts",
+                                  "experience":_se}
+                        register_user("seller", _sdata)
+                        st.success(f"🎉 Welcome {_sn}! Seller ID: {_sdata.get('id','S1001')}")
                         st.balloons()
-                        st.markdown(f"""
-                        <div class="ai-result">
-                          <h4>✅ Account Created Successfully!</h4>
-                          <b>Seller ID:</b> {seller_data.get('id', 'S1001')}<br>
-                          <b>Business:</b> {seller_data.get('business_name')}<br>
-                          <b>Category:</b> {s_category}<br>
-                          <b>Recommended Platform:</b> {s_platform[0] if s_platform else 'Meesho'}<br><br>
-                          <b>Next Step:</b> Register on {s_platform[0] if s_platform else 'Meesho'} using the links in the Document Checklist tab.
-                        </div>
-                        """, unsafe_allow_html=True)
 
-        # ── Buyer Registration ──
-        with reg_tab3:
-            st.markdown("### 🛒 Register as an End User / Buyer")
-            st.markdown("*Discover handmade Indian products · Contact sellers directly*")
-            st.markdown("")
-
-            with st.form("buyer_registration"):
-                b_col1, b_col2 = st.columns(2)
-                with b_col1:
-                    b_name = st.text_input("Full Name *", placeholder="e.g., Rahul Kumar")
-                    b_phone = st.text_input("Mobile Number *", placeholder="e.g., 9876543210")
-                    b_city = st.text_input("Your City *", placeholder="e.g., Mumbai")
-                with b_col2:
-                    b_state = st.selectbox("State *", ["Select State"] + INDIAN_STATES, key="buyer_state")
-                    b_interest = st.multiselect("Interested Product Categories:", list(PLATFORMS["Meesho"]["categories"].keys()))
-                    b_budget = st.select_slider("Typical Budget per Item (₹):", options=[50, 100, 200, 500, 1000, 2000, 5000], value=500)
-
-                b_purpose = st.radio("Buying for:", ["Personal use", "Gift", "Resale/Business", "Interior decoration"], horizontal=True)
-                b_agree = st.checkbox("I agree to CarryMe Store buyer terms")
-
-                b_submitted = st.form_submit_button("🛒 Create Buyer Account", type="primary", use_container_width=True)
-
-                if b_submitted:
-                    if not b_name or not b_phone or b_state == "Select State":
-                        st.error("Please fill all required fields (marked with *)")
-                    elif not b_agree:
-                        st.warning("Please agree to the terms to continue.")
+        with _r3:
+            st.markdown("### 🛒 Register as a Buyer")
+            with st.form("buyer_form"):
+                _bc1,_bc2 = st.columns(2)
+                with _bc1:
+                    _bn = st.text_input("Full Name *", placeholder="Rahul Kumar")
+                    _bph= st.text_input("Mobile *", placeholder="9876543210")
+                    _bc_= st.text_input("City *", placeholder="Mumbai")
+                with _bc2:
+                    _bs = st.selectbox("State *", ["Select"]+INDIAN_STATES,
+                                       key="buyer_state")
+                    _bi = st.multiselect("Interests:",
+                                         list(PLATFORMS["Meesho"]["categories"].keys()))
+                    _bb = st.select_slider("Budget per item (₹):",
+                                           [50,100,200,500,1000,2000,5000], value=500)
+                _bp  = st.radio("Buying for:",
+                                ["Personal","Gift","Resale","Decoration"],
+                                horizontal=True)
+                _ba  = st.checkbox("I agree to buyer terms")
+                _bsub= st.form_submit_button("🛒 Create Buyer Account",
+                                              type="primary", use_container_width=True)
+                if _bsub:
+                    if not _bn or not _bph or _bs == "Select":
+                        st.error("Fill all required (*) fields.")
+                    elif not _ba:
+                        st.warning("Please agree to terms.")
                     else:
-                        buyer_data = {
-                            "name": b_name, "phone": b_phone, "city": b_city,
-                            "state": b_state, "interests": b_interest,
-                            "budget": b_budget, "purpose": b_purpose
-                        }
-                        register_user("buyer", buyer_data)
-                        st.success(f"🎉 Welcome to CarryMe, {b_name}! Your buyer ID: {buyer_data.get('id', 'B1001')}")
-                        st.markdown(f"""
-                        <div class="ai-result">
-                          <h4>✅ Buyer Account Created!</h4>
-                          <b>Buyer ID:</b> {buyer_data.get('id', 'B1001')}<br>
-                          <b>Location:</b> {b_city}, {b_state}<br>
-                          <b>Budget:</b> up to ₹{b_budget} per item<br>
-                          <b>Interests:</b> {', '.join(b_interest) if b_interest else 'All categories'}<br><br>
-                          You can now connect directly with verified Indian handmade sellers!
-                        </div>
-                        """, unsafe_allow_html=True)
+                        _bdata = {"name":_bn,"phone":_bph,"city":_bc_,
+                                  "state":_bs,"interests":_bi,
+                                  "budget":_bb,"purpose":_bp}
+                        register_user("buyer", _bdata)
+                        st.success(f"🎉 Welcome {_bn}! Buyer ID: {_bdata.get('id','B1001')}")
 
-# ─────────────────────────────────────────
-# EMPTY STATE (no image uploaded)
-# ─────────────────────────────────────────
-elif not uploaded_file:
+# ── EMPTY STATE ──────────────────────────────────────────────────
+elif not uploaded:
     st.markdown("---")
     st.markdown("### 🌟 How CarryMe Store Works")
-
-    how_col1, how_col2, how_col3 = st.columns(3)
-    with how_col1:
-        st.markdown("""
-        <div class="step-box">
+    _h1,_h2,_h3 = st.columns(3)
+    with _h1:
+        st.markdown("""<div class="step-box">
           <div style="font-size:2.5rem">📸</div>
           <h4>Step 1: Upload Photo</h4>
-          <p>Click or upload your handmade product photo. No studio needed — good natural light works!</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with how_col2:
-        st.markdown("""
-        <div class="step-box">
+          <p>Click or upload your handmade product. Good natural light works great!</p>
+        </div>""", unsafe_allow_html=True)
+    with _h2:
+        st.markdown("""<div class="step-box">
           <div style="font-size:2.5rem">🤖</div>
           <h4>Step 2: AI Analysis</h4>
-          <p>Gemini AI identifies your product, generates SEO listing, and finds the best platform match.</p>
-        </div>
-        """, unsafe_allow_html=True)
-    with how_col3:
-        st.markdown("""
-        <div class="step-box">
+          <p>Gemini identifies product, generates SEO listing, finds best platform match.</p>
+        </div>""", unsafe_allow_html=True)
+    with _h3:
+        st.markdown("""<div class="step-box">
           <div style="font-size:2.5rem">🚀</div>
           <h4>Step 3: Go Live!</h4>
-          <p>Get platform ratings, contact bulk suppliers, and register your seller account — all in one click.</p>
-        </div>
-        """, unsafe_allow_html=True)
+          <p>Platform ratings, bulk suppliers, seller registration — all in one click.</p>
+        </div>""", unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown("### 📊 Platform Quick Stats")
-    stats_df = pd.DataFrame([
-        {"Platform": "Meesho 🛍️", "Commission": "1.8%", "GST Needed": "No", "Best For": "High volume ethnic goods", "Reach": "Tier 2/3/4 cities"},
-        {"Platform": "Flipkart ⭐", "Commission": "8.5%", "GST Needed": "No*", "Best For": "Mid-range branded look", "Reach": "Pan India"},
-        {"Platform": "Amazon India 📦", "Commission": "10%", "GST Needed": "Preferred", "Best For": "Premium & export", "Reach": "Premium urban buyers"},
+    st.markdown("### 📊 Platform Quick Comparison")
+    _df = pd.DataFrame([
+        {"Platform":"Meesho 🛍️","Commission":"1.8%",
+         "GST Needed":"No","Best For":"High volume ethnic goods","Tier":"2/3/4 cities"},
+        {"Platform":"Flipkart ⭐","Commission":"8.5%",
+         "GST Needed":"No*","Best For":"Mid-range branded look","Tier":"Pan India"},
+        {"Platform":"Amazon India 📦","Commission":"10%",
+         "GST Needed":"Preferred","Best For":"Premium & export","Tier":"Urban premium"},
     ])
-    st.dataframe(stats_df, use_container_width=True, hide_index=True)
+    st.dataframe(_df, use_container_width=True, hide_index=True)
+    st.markdown("""<div class="info-box">
+      💡 <b>Start with Meesho</b> — lowest commission (1.8%), no GST, largest
+      Tier 3/4 buyer base. Once you have 20+ reviews, expand to Flipkart & Amazon.
+    </div>""", unsafe_allow_html=True)
 
-    st.markdown("""
-    <div class="info-box">
-      💡 <b>Tip:</b> Start with <b>Meesho</b> — lowest commission (1.8%), no GST required, and the largest Tier 3/4 buyer base in India.
-      Once you have 20+ reviews, expand to Flipkart and Amazon.
-    </div>
-    """, unsafe_allow_html=True)
-
-# ─────────────────────────────────────────
-# FOOTER
-# ─────────────────────────────────────────
+# ── FOOTER ───────────────────────────────────────────────────────
 st.markdown("---")
 st.markdown("""
-<div style="text-align:center;color:#888;font-size:0.85rem;padding:1rem">
+<div style="text-align:center;color:#888;font-size:.82rem;padding:1rem">
   🛍️ <b>CarryMe Store</b> · AI-Powered Seller Intelligence for Indian Handmade Products<br>
-  Built with ❤️ for Tier 3 & 4 India · Powered by Google Gemini AI (Free) · Deployed on Streamlit Cloud<br>
-  <small>Not affiliated with Meesho, Flipkart or Amazon. Data is indicative and updated periodically.</small>
+  Built with ❤️ for Tier 3 &amp; 4 India · Google Gemini AI (Free) · Streamlit Cloud<br>
+  <small>Not affiliated with Meesho, Flipkart or Amazon. Data is indicative.</small>
 </div>
 """, unsafe_allow_html=True)
